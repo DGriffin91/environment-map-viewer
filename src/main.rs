@@ -1,79 +1,90 @@
 mod cubemap_material;
 
-use std::env;
-
 use bevy::{prelude::*, utils::hashbrown::HashSet};
 use cubemap_material::CubemapMaterial;
 use smooth_bevy_cameras::{
-    controllers::unreal::{UnrealCameraBundle, UnrealCameraController, UnrealCameraPlugin},
+    controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
     LookTransformPlugin,
 };
+
+use bevy_egui::{
+    egui::{self, FontDefinitions},
+    EguiContext, EguiPlugin,
+};
+
+#[derive(Component)]
+enum Item {
+    Dragon,
+    Sphere,
+    Env,
+}
 
 pub fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    settings: Res<Settings>,
     mut materials: ResMut<Assets<CubemapMaterial>>,
 ) {
-    let texture = asset_server.load(&settings.texture_path);
+    let texture = asset_server.load("textures/autumn_park.jpg");
 
-    if !settings.no_env {
-        dbg!("env");
-        let mesh = asset_server.load("models/standard_sphere_normals_flipped.glb#Mesh0/Primitive0");
-        let material = materials.add(CubemapMaterial {
-            normal: Vec4::new(-1.0, -1.0, -1.0, 0.0),
-            texture: texture.clone(),
-            needs_conversion: true,
-        });
+    let mesh = asset_server.load("models/standard_sphere_normals_flipped.glb#Mesh0/Primitive0");
+    let material = materials.add(CubemapMaterial {
+        normal: Vec4::new(-1.0, -1.0, -1.0, 0.0),
+        texture: texture.clone(),
+        needs_conversion: true,
+    });
 
-        commands.spawn().insert_bundle(MaterialMeshBundle {
-            mesh: mesh.clone(),
+    commands
+        .spawn()
+        .insert_bundle(MaterialMeshBundle {
+            mesh,
             transform: Transform::from_xyz(0.0, 0.0, 0.0)
                 .with_scale(Vec3::new(100.0, 100.0, 100.0)),
-            material: material.clone(),
+            material,
+            visibility: Visibility { is_visible: true },
             ..Default::default()
-        });
-    }
+        })
+        .insert(Item::Env);
 
-    if settings.sphere {
-        dbg!("sphere");
-        let mesh = asset_server.load("models/standard_sphere.glb#Mesh0/Primitive0");
-        let material = materials.add(CubemapMaterial {
-            normal: Vec4::new(1.0, 1.0, 1.0, 1.0),
-            texture: texture.clone(),
-            needs_conversion: true,
-        });
+    let mesh = asset_server.load("models/standard_sphere.glb#Mesh0/Primitive0");
+    let material = materials.add(CubemapMaterial {
+        normal: Vec4::new(1.0, 1.0, 1.0, 1.0),
+        texture: texture.clone(),
+        needs_conversion: true,
+    });
 
-        commands.spawn().insert_bundle(MaterialMeshBundle {
-            mesh: mesh.clone(),
-            material: material.clone(),
-            transform: Transform::from_xyz(0.0, 0.0, 3.0),
+    commands
+        .spawn()
+        .insert_bundle(MaterialMeshBundle {
+            mesh,
+            material,
+            visibility: Visibility { is_visible: false },
             ..Default::default()
-        });
-    }
+        })
+        .insert(Item::Sphere);
 
-    if settings.dragon {
-        dbg!("dragon");
-        let mesh = asset_server.load("models/dragon.glb#Mesh0/Primitive0");
-        let material = materials.add(CubemapMaterial {
-            normal: Vec4::new(1.0, 1.0, 1.0, 1.0),
-            texture: texture.clone(),
-            needs_conversion: true,
-        });
+    let mesh = asset_server.load("models/dragon.glb#Mesh0/Primitive0");
+    let material = materials.add(CubemapMaterial {
+        normal: Vec4::new(1.0, 1.0, 1.0, 1.0),
+        texture,
+        needs_conversion: true,
+    });
 
-        commands.spawn().insert_bundle(MaterialMeshBundle {
-            mesh: mesh.clone(),
-            material: material.clone(),
-            transform: Transform::from_xyz(0.0, 0.0, 3.0).with_scale(Vec3::new(0.01, 0.01, 0.01)),
+    commands
+        .spawn()
+        .insert_bundle(MaterialMeshBundle {
+            mesh,
+            material,
+            transform: Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(0.01, 0.01, 0.01)),
+            visibility: Visibility { is_visible: false },
             ..Default::default()
-        });
-    }
+        })
+        .insert(Item::Dragon);
 
-    commands.spawn_bundle(UnrealCameraBundle::new(
-        UnrealCameraController::default(),
+    commands.spawn_bundle(OrbitCameraBundle::new(
+        OrbitCameraController::default(),
         PerspectiveCameraBundle::default(),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(0.0, 0.0, 5.0),
+        Vec3::new(0., 0., 0.),
     ));
 }
 
@@ -88,54 +99,101 @@ fn convert_to_cube(
             material.needs_conversion = false;
         } else {
             if let Some(image) = images.get_mut(&material.texture) {
-                image.reinterpret_stacked_2d_as_array(6);
-                converted.insert(material.texture.clone());
+                if image.texture_descriptor.size.height % 6 != 0 {
+                    println!("Dimensions incorrect for cube map strip. Proportions should be 1 wide by 6 tall.")
+                } else {
+                    image.reinterpret_stacked_2d_as_array(6);
+                    converted.insert(material.texture.clone());
+                }
             }
         }
     }
 }
 
+fn ui(
+    mut egui_context: ResMut<EguiContext>,
+    mut items: Query<(&mut Visibility, &Item)>,
+    mut materials: ResMut<Assets<CubemapMaterial>>,
+    asset_server: Res<AssetServer>,
+    mut env_path: Local<String>,
+    mut drop_events: EventReader<FileDragAndDrop>,
+    mut drop_hovered: Local<bool>,
+    mut orbit_cam: Query<&mut OrbitCameraController>,
+) {
+    let mut update_env = false;
+
+    for event in drop_events.iter() {
+        match event {
+            FileDragAndDrop::DroppedFile { path_buf, .. } => {
+                *env_path = path_buf.to_string_lossy().to_string();
+                update_env = true;
+                *drop_hovered = false;
+            }
+            FileDragAndDrop::HoveredFile { .. } => *drop_hovered = true,
+            FileDragAndDrop::HoveredFileCancelled { .. } => *drop_hovered = false,
+        }
+    }
+    let panel_hovered = egui::SidePanel::left("left_panel")
+        .resizable(true)
+        .show(egui_context.ctx_mut(), |ui| {
+            if *drop_hovered {
+                ui.label("🙌");
+            } else {
+                ui.label("");
+            }
+            ui.label("CTRL + mouse drag: Rotate camera");
+            ui.label("Right mouse drag: Pan camera");
+            ui.label("Mouse wheel: Zoom");
+            for (mut vis, item) in items.iter_mut() {
+                match item {
+                    Item::Dragon => ui.checkbox(&mut vis.is_visible, "Dragon"),
+                    Item::Sphere => ui.checkbox(&mut vis.is_visible, "Sphere"),
+                    Item::Env => ui.checkbox(&mut vis.is_visible, "Environment"),
+                };
+            }
+            if ui.button("Reset Environment Texture").clicked() {
+                *env_path = String::from("textures/autumn_park.jpg");
+                update_env = true;
+            }
+            ui.text_edit_singleline(&mut *env_path);
+            if ui.button("Load Environment Texture").clicked() || update_env {
+                dbg!(&env_path);
+                let env = asset_server.load(&*env_path);
+                for (_, mat) in materials.iter_mut() {
+                    mat.needs_conversion = true;
+                    mat.texture = env.clone();
+                }
+            }
+        })
+        .response
+        .hovered();
+    if let Some(mut cam) = orbit_cam.iter_mut().next() {
+        cam.enabled = !(egui_context.ctx_mut().wants_pointer_input() || panel_hovered);
+    }
+}
+
+pub fn setup_fonts(mut egui_context: ResMut<EguiContext>) {
+    let mut fonts = FontDefinitions::default();
+
+    for (_text_style, data) in fonts.font_data.iter_mut() {
+        data.tweak.scale = 1.5;
+    }
+    egui_context.ctx_mut().set_fonts(fonts);
+}
+
 #[derive(Default, Deref, DerefMut)]
 pub struct ConvertedTextures(HashSet<Handle<Image>>);
 
-#[derive(Default)]
-pub struct Settings {
-    pub texture_path: String,
-    pub no_env: bool,
-    pub sphere: bool,
-    pub dragon: bool,
-}
-
 fn main() {
-    // TODO just use egui instead of args
-    println!("Options: textures/autumn_park.jpg no_env sphere dragon");
-    let mut settings = Settings::default();
-    settings.texture_path = String::from("textures/autumn_park.jpg");
-
-    let mut args = env::args();
-    args.next();
-
-    for arg in args {
-        // TODO actually see if this is a file path
-        if arg.contains('.') {
-            settings.texture_path = arg;
-            continue;
-        }
-        match arg.as_str() {
-            "no_env" => settings.no_env = true,
-            "sphere" => settings.sphere = true,
-            "dragon" => settings.dragon = true,
-            _ => continue,
-        }
-    }
-
     App::new()
-        .insert_resource(settings)
         .add_plugins(DefaultPlugins)
+        .add_plugin(EguiPlugin)
         .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
         .add_plugin(LookTransformPlugin)
-        .add_plugin(UnrealCameraPlugin::default())
+        .add_plugin(OrbitCameraPlugin::default())
         .add_startup_system(setup)
+        .add_startup_system(setup_fonts)
         .add_system(convert_to_cube)
+        .add_system(ui)
         .run();
 }
