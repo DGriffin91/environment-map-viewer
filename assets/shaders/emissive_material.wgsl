@@ -1,5 +1,5 @@
-
-#import bevy_pbr::mesh_view_bind_group
+#import bevy_pbr::mesh_types
+#import bevy_pbr::mesh_view_bindings
 
 struct CubemapMaterial {
     normal: vec4<f32>;
