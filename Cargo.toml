@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy", features = ["jpeg"] }
 bevy_egui = { git = "https://github.com/DGriffin91/bevy_egui" }
+bevy_basic_camera = { git = "https://github.com/DGriffin91/bevy_basic_camera" }
 bytemuck = "1.9"
 
 # Enable only a small amount of optimization in debug mode

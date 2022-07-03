@@ -8,6 +8,8 @@ use bevy_egui::{
     EguiContext, EguiPlugin,
 };
 
+use bevy_basic_camera::{CameraController, CameraControllerPlugin};
+
 #[derive(Component)]
 enum Item {
     Dragon,
@@ -76,10 +78,18 @@ pub fn setup(
         })
         .insert(Item::Dragon);
 
-    commands.spawn_bundle(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    commands
+        .spawn_bundle(Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        })
+        .insert(
+            CameraController {
+                orbit_mode: true,
+                ..default()
+            }
+            .print_controls(),
+        );
 }
 
 fn convert_to_cube(
@@ -112,7 +122,7 @@ fn ui(
     mut env_path: Local<String>,
     mut drop_events: EventReader<FileDragAndDrop>,
     mut drop_hovered: Local<bool>,
-    //mut orbit_cam: Query<&mut OrbitCameraController>,
+    mut cameras: Query<&mut CameraController, With<Camera>>,
 ) {
     let mut update_env = false;
 
@@ -127,7 +137,7 @@ fn ui(
             FileDragAndDrop::HoveredFileCancelled { .. } => *drop_hovered = false,
         }
     }
-    let _panel_hovered = egui::SidePanel::left("left_panel")
+    let panel_hovered = egui::SidePanel::left("left_panel")
         .resizable(true)
         .show(egui_context.ctx_mut(), |ui| {
             if *drop_hovered {
@@ -161,9 +171,9 @@ fn ui(
         })
         .response
         .hovered();
-    //if let Some(mut cam) = orbit_cam.iter_mut().next() {
-    //    cam.enabled = !(egui_context.ctx_mut().wants_pointer_input() || panel_hovered);
-    //}
+    if let Some(mut cam) = cameras.iter_mut().next() {
+        cam.enabled = !(egui_context.ctx_mut().wants_pointer_input() || panel_hovered);
+    }
 }
 
 pub fn setup_fonts(mut egui_context: ResMut<EguiContext>) {
@@ -183,6 +193,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
+        .add_plugin(CameraControllerPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_fonts)
         .add_system(convert_to_cube)
