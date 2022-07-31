@@ -2,15 +2,13 @@ mod cubemap_material;
 
 use bevy::{prelude::*, utils::hashbrown::HashSet};
 use cubemap_material::CubemapMaterial;
-use smooth_bevy_cameras::{
-    controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
-    LookTransformPlugin,
-};
 
 use bevy_egui::{
     egui::{self, FontDefinitions},
     EguiContext, EguiPlugin,
 };
+
+use bevy_basic_camera::{CameraController, CameraControllerPlugin};
 
 #[derive(Component)]
 enum Item {
@@ -73,19 +71,25 @@ pub fn setup(
         .spawn()
         .insert_bundle(MaterialMeshBundle {
             mesh,
-            material,
+            material: material.clone(),
             transform: Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(0.01, 0.01, 0.01)),
-            visibility: Visibility { is_visible: false },
+            visibility: Visibility { is_visible: true },
             ..Default::default()
         })
         .insert(Item::Dragon);
 
-    commands.spawn_bundle(OrbitCameraBundle::new(
-        OrbitCameraController::default(),
-        PerspectiveCameraBundle::default(),
-        Vec3::new(0.0, 0.0, 5.0),
-        Vec3::new(0., 0., 0.),
-    ));
+    commands
+        .spawn_bundle(Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ..default()
+        })
+        .insert(
+            CameraController {
+                orbit_mode: true,
+                ..default()
+            }
+            .print_controls(),
+        );
 }
 
 fn convert_to_cube(
@@ -118,7 +122,7 @@ fn ui(
     mut env_path: Local<String>,
     mut drop_events: EventReader<FileDragAndDrop>,
     mut drop_hovered: Local<bool>,
-    mut orbit_cam: Query<&mut OrbitCameraController>,
+    mut cameras: Query<&mut CameraController, With<Camera>>,
 ) {
     let mut update_env = false;
 
@@ -167,7 +171,7 @@ fn ui(
         })
         .response
         .hovered();
-    if let Some(mut cam) = orbit_cam.iter_mut().next() {
+    if let Some(mut cam) = cameras.iter_mut().next() {
         cam.enabled = !(egui_context.ctx_mut().wants_pointer_input() || panel_hovered);
     }
 }
@@ -189,8 +193,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         .add_plugin(MaterialPlugin::<CubemapMaterial>::default())
-        .add_plugin(LookTransformPlugin)
-        .add_plugin(OrbitCameraPlugin::default())
+        .add_plugin(CameraControllerPlugin)
         .add_startup_system(setup)
         .add_startup_system(setup_fonts)
         .add_system(convert_to_cube)

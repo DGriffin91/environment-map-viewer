@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = { version = "0.7", features = ["jpeg"] }
-rand = "0.8"
-bevy_egui = "0.13"
-smooth-bevy-cameras = "0.4"
+bevy = { version = "0.8", features = ["jpeg"] }
+bevy_egui = "0.15"
+bevy_basic_camera = { git = "https://github.com/DGriffin91/bevy_basic_camera" }
+bytemuck = "1.9"
 
 # Enable only a small amount of optimization in debug mode
 [profile.dev]
